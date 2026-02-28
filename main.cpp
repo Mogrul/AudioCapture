@@ -6,6 +6,9 @@
 #include <functiondiscoverykeys_devpkey.h>
 #include <thread>
 #include <string>
+#include <fcntl.h>
+#include <io.h>
+#include <vector>
 
 std::atomic<bool> stopRecording(false);
 
@@ -18,6 +21,7 @@ void stdinWatcher() {
 
 int main() {
     CoInitialize(NULL);
+    _setmode(_fileno(stdout), _O_BINARY);
 
     // Device enumerator
     IMMDeviceEnumerator* pEnumerator = nullptr;
@@ -34,7 +38,6 @@ int main() {
     PROPVARIANT varName;
     PropVariantInit(&varName);
     pProps->GetValue(PKEY_Device_FriendlyName, &varName);
-    std::wcout << L"Capturing from: " << varName.pwszVal << std::endl;
 
     // Activate audio client
     IAudioClient* pAudioClient = nullptr;
@@ -54,7 +57,6 @@ int main() {
     pAudioClient->GetService(__uuidof(IAudioCaptureClient), (void**)&pCaptureClient);
 
     pAudioClient->Start();
-    std::cerr << "Recording to stdout... send stop signal from Java to terminate.\n";
 
     // Thread to listen for a stop signal
     std::thread watcher(stdinWatcher);
@@ -70,17 +72,23 @@ int main() {
             DWORD flags;
             pCaptureClient->GetBuffer(&pData, &numFrames, &flags, nullptr, nullptr);
 
-            // Convert float -> 16-bit PCM and write to stdout
+            // Convert float -> 16-bit PCM into a temporary buffer
+            std::vector<int16_t> pcmBuffer(numFrames * pwfx->nChannels);
             float* fData = reinterpret_cast<float*>(pData);
             for (UINT32 i = 0; i < numFrames * pwfx->nChannels; i++) {
                 float sample = fData[i];
                 if (sample > 1.0f) sample = 1.0f;
                 if (sample < -1.0f) sample = -1.0f;
-                int16_t intSample = static_cast<int16_t>(sample * 32767.0f);
-                std::cout.write(reinterpret_cast<char*>(&intSample), sizeof(int16_t));
+                pcmBuffer[i] = static_cast<int16_t>(sample * 32767.0f);
             }
 
-            std::cout.flush(); // make sure Java sees it
+            // Write directly to binary stdout
+            DWORD bytesWritten;
+            WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),
+                pcmBuffer.data(),
+                static_cast<DWORD>(pcmBuffer.size() * sizeof(int16_t)),
+                &bytesWritten,
+                nullptr);
 
             pCaptureClient->ReleaseBuffer(numFrames);
             pCaptureClient->GetNextPacketSize(&packetLength);
