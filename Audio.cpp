@@ -17,14 +17,20 @@ Audio::Audio(const std::string& fileName)
 	);
 	audioClient->GetService(__uuidof(IAudioCaptureClient), (void**)&captureClient);
 
-	// Placeholder header
-	WriteWavHeader();
+
+	// Initialise LAME
+	lame = lame_init();
+	lame_set_in_samplerate(lame, fileFormat->nSamplesPerSec);
+	lame_set_num_channels(lame, fileFormat->nChannels);
+	lame_set_VBR(lame, vbr_default);
+	lame_init_params(lame);
 }
 
 void Audio::Start() {
 	audioClient->Start();
 	std::thread watcher([this]() { this->StdinWatcher(); }); // Watches for stdin -> stops recording
 
+	std::vector<unsigned char> mp3Buffer(8192);
 	while (!stopRecording) {
 		UINT32 packetLength = 0;
 		captureClient->GetNextPacketSize(&packetLength);
@@ -45,27 +51,49 @@ void Audio::Start() {
 				buffer[i] = static_cast<int16_t>(sample * 32767.0f);
 			}
 
-			audioFile.write(
-				reinterpret_cast<char*>(buffer.data()),
-				buffer.size() * sizeof(int16_t)
-			);
+			// Encode PCM to MP3
+			int bytesEncoded = 0;
+			if (fileFormat->nChannels == 2) { // Dual channel
+				bytesEncoded = lame_encode_buffer_interleaved(
+					lame,
+					buffer.data(),
+					numFrames,
+					mp3Buffer.data(),
+					mp3Buffer.size()
+				);
+			} // Mono
+			else {
+				bytesEncoded = lame_encode_buffer(
+					lame,
+					buffer.data(), nullptr,
+					numFrames,
+					mp3Buffer.data(),
+					mp3Buffer.size()
+				);
+			}
 
-			dataSize += buffer.size() * sizeof(int16_t);
+			if (bytesEncoded > 0) {
+				audioFile.write(reinterpret_cast<char*>(mp3Buffer.data()), bytesEncoded);
+			}
+
 			captureClient->ReleaseBuffer(numFrames);
 			captureClient->GetNextPacketSize(&packetLength);
 		}
 
 		Sleep(10);
 	}
+
+	// Flush LAME
+	int flushBytes = lame_encode_flush(lame, mp3Buffer.data(), mp3Buffer.size());
+	if (flushBytes > 0) {
+		audioFile.write(reinterpret_cast<char*>(mp3Buffer.data()), flushBytes);
+	}
+
+	Stop();
 }
 
 void Audio::Stop() {
-	stopRecording = true;
-
 	audioClient->Stop();
-
-	// Finalise wave header data size
-	WriteWavHeader();
 	audioFile.close();
 
 	captureClient->Release();
@@ -75,36 +103,9 @@ void Audio::Stop() {
 	CoUninitialize();
 }
 
-void Audio::WriteWavHeader() {
-	DWORD byteRate = fileFormat->nSamplesPerSec
-		* fileFormat->nChannels * 2;
-	DWORD chunkSize = 36 + dataSize;
-	DWORD subChunkSize = 16;
-	WORD blockAlign = fileFormat->nChannels * 2;
-	WORD audioFormat = 1; // PCM
-	WORD bitsPerSample = 16;
-	WORD channels = fileFormat->nChannels;
-	DWORD samplesPerSec = fileFormat->nSamplesPerSec;
-
-	audioFile.seekp(0, std::ios::beg);
-	audioFile.write("RIFF", 4);
-	audioFile.write(reinterpret_cast<const char*>(&chunkSize), 4);
-	audioFile.write("WAVE", 4);
-	audioFile.write("fmt ", 4);
-	audioFile.write(reinterpret_cast<const char*>(&subChunkSize), 4);
-	audioFile.write(reinterpret_cast<const char*>(&audioFormat), 2);
-	audioFile.write(reinterpret_cast<const char*>(&channels), 2);
-	audioFile.write(reinterpret_cast<const char*>(&samplesPerSec), 4);
-	audioFile.write(reinterpret_cast<const char*>(&byteRate), 4);
-	audioFile.write(reinterpret_cast<const char*>(&blockAlign), 2);
-	audioFile.write(reinterpret_cast<const char*>(&bitsPerSample), 2);
-	audioFile.write("data", 4);
-	audioFile.write(reinterpret_cast<const char*>(&dataSize), 4);
-}
-
 void Audio::StdinWatcher() {
 	// Watches for an stdin to stop recording
 	std::string line;
 	std::getline(std::cin, line);
-	Stop();
+	stopRecording = true;
 }

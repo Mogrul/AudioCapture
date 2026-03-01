@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include "lame/lame.h"
 
 class Audio
 {
@@ -31,6 +32,7 @@ private:
 	IMMDeviceEnumerator* enumerator;
 	WAVEFORMATEX* fileFormat;
 
+	lame_t lame;
 	std::ofstream audioFile;
 	DWORD dataSize = 0;
 	std::atomic<bool> stopRecording = false;

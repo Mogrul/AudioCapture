@@ -3,7 +3,7 @@
 int main() {
     CoInitialize(NULL);
 
-    Audio audio("output.wav");
+    Audio audio("output.mp3");
     audio.Start();
 
     CoUninitialize();
