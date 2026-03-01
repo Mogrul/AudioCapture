@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="AudioCapture.vcxproj" />
+  <Project Path="AudioCapture.vcxproj" Id="68cdc144-a8fa-4a1d-be62-5f1606cce554" />
 </Solution>
