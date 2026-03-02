@@ -26,14 +26,15 @@ private:
 	void StdinWatcher();
 
 private:
-	IAudioCaptureClient* captureClient;
-	IAudioClient* audioClient;
-	IMMDevice* device;
-	IMMDeviceEnumerator* enumerator;
-	WAVEFORMATEX* fileFormat;
+	IAudioCaptureClient* captureClient = nullptr;
+	IAudioClient* audioClient = nullptr;
+	IMMDevice* device = nullptr;
+	IMMDeviceEnumerator* enumerator = nullptr;
+	WAVEFORMATEX* fileFormat = nullptr;
 
 	lame_t lame;
 	std::ofstream audioFile;
 	DWORD dataSize = 0;
 	std::atomic<bool> stopRecording = false;
+	std::thread watcher;
 };

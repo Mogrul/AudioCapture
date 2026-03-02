@@ -28,7 +28,7 @@ Audio::Audio(const std::string& fileName)
 
 void Audio::Start() {
 	audioClient->Start();
-	std::thread watcher([this]() { this->StdinWatcher(); }); // Watches for stdin -> stops recording
+	watcher = std::thread([this]() { this->StdinWatcher(); }); // Watches for stdin -> stops recording
 
 	std::vector<unsigned char> mp3Buffer(8192);
 	while (!stopRecording) {
@@ -93,19 +93,38 @@ void Audio::Start() {
 }
 
 void Audio::Stop() {
-	audioClient->Stop();
-	audioFile.close();
+	stopRecording = true;
 
-	captureClient->Release();
-	audioClient->Release();
-	device->Release();
-	enumerator->Release();
-	CoUninitialize();
+	if (watcher.joinable()) {
+		watcher.join();
+	}
+
+	if (audioClient) audioClient->Stop();
+
+	if (captureClient) captureClient->Release();
+	if (audioClient) audioClient->Release();
+	if (device) device->Release();
+	if (enumerator) enumerator->Release();
+
+	if (audioFile) audioFile.close();
+
+	audioClient = nullptr;
+	captureClient = nullptr;
+	device = nullptr;
+	enumerator = nullptr;
 }
 
 void Audio::StdinWatcher() {
 	// Watches for an stdin to stop recording
-	std::string line;
-	std::getline(std::cin, line);
-	stopRecording = true;
+	while (!stopRecording) {
+		try {
+			std::string line;
+			if (std::getline(std::cin, line)) {
+				stopRecording = true;
+			}
+		}
+		catch (const std::ios_base::failure& e) {
+			// Stream closed, ignore
+		}
+	}
 }
